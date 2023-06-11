@@ -1,0 +1,140 @@
+#include <DHT.h>
+#include <LiquidCrystal_I2C.h>
+#include <IRremote.h>
+
+#define DHTPIN 2
+#define DHTTYPE DHT11
+
+#define IR_PIN 3
+
+DHT dht(DHTPIN, DHTTYPE);
+
+LiquidCrystal_I2C lcd(0x27, 16, 2);
+
+IRsend irsend(IR_PIN);
+
+const int buttonPinLeft = 4;
+const int buttonPinMiddle = 5;
+const int buttonPinRight = 6;
+
+int currentTemperature = 0;
+int currentHumidity = 0;
+int targetHumidity = 45;
+unsigned long learnedIRValue = 0;
+bool learningMode = false;
+
+void setup() {
+  pinMode(buttonPinLeft, INPUT_PULLUP);
+  pinMode(buttonPinMiddle, INPUT_PULLUP);
+  pinMode(buttonPinRight, INPUT_PULLUP);
+
+  lcd.begin(16, 2);
+  lcd.print("Initializing...");
+  delay(2000);
+  lcd.clear();
+
+  dht.begin();
+
+  lcd.setCursor(0, 0);
+  lcd.print("Temp: ");
+  lcd.setCursor(0, 1);
+  lcd.print("Humidity: ");
+}
+
+void loop() {
+  // Đọc nhiệt độ và độ ẩm hiện tại
+  float temperature = dht.readTemperature();
+  float humidity = dht.readHumidity();
+
+  if (!isnan(temperature) && !isnan(humidity)) {
+    currentTemperature = static_cast<int>(temperature);
+    currentHumidity = static_cast<int>(humidity);
+
+    lcd.setCursor(6, 0);
+    lcd.print(currentTemperature);
+    lcd.print("C");
+
+    lcd.setCursor(10, 1);
+    lcd.print(currentHumidity);
+    lcd.print("%");
+  }
+
+  // Xử lý nút nhấn
+  if (digitalRead(buttonPinMiddle) == LOW) {
+    handleMiddleButton();
+  } else if (digitalRead(buttonPinLeft) == LOW) {
+    handleLeftButton();
+  } else if (digitalRead(buttonPinRight) == LOW) {
+    handleRightButton();
+  }
+
+  // Kiểm tra điều kiện để phát tín hiệu hồng ngoại
+  if (currentHumidity >= targetHumidity || currentHumidity > 60) {
+    irsend.sendNEC(learnedIRValue, 32);
+    delay(1000);
+  }
+}
+
+void handleMiddleButton() {
+  if (!learningMode) {
+    lcd.clear();
+    lcd.print("1. Learn IR");
+    lcd.setCursor(0, 1);
+    lcd.print("2. Set Humidity");
+    learningMode = true;
+  } else {
+    lcd.clear();
+    lcd.setCursor(0, 0);
+    lcd.print("Temp: ");
+    lcd.setCursor(0, 1);
+    lcd.print("Humidity: ");
+    learningMode = false;
+  }
+  delay(500);
+}
+
+void handleLeftButton() {
+  if (learningMode) {
+    lcd.setCursor(0, 0);
+    lcd.print("Learning IR...");
+    delay(1000);
+    learnedIRValue = irrecv.readIR();
+    irrecv.resume();
+
+    lcd.clear();
+    lcd.print("IR Learned");
+    delay(1000);
+  } else {
+    targetHumidity--;
+    if (targetHumidity < 0) {
+      targetHumidity = 0;
+    }
+    lcd.setCursor(10, 1);
+    lcd.print("   "); // Xóa giá trị độ ẩm cũ
+    lcd.setCursor(10, 1);
+    lcd.print(targetHumidity);
+    lcd.print("%");
+  }
+  delay(500);
+}
+
+void handleRightButton() {
+  if (learningMode) {
+    // Không làm gì khi ấn nút phải trong chế độ học IR
+    return;
+  } else {
+    targetHumidity++;
+    if (targetHumidity > 100) {
+      targetHumidity = 100;
+    }
+    lcd.setCursor(10, 1);
+    lcd.print("   "); // Xóa giá trị độ ẩm cũ
+    lcd.setCursor(10, 1);
+    lcd.print(targetHumidity);
+    lcd.print("%");
+  }
+  delay(500);
+}
+
+
+//thiết bị điều khiển điều hòa tự động theo nhiệt độ và độ ẩm đo được qua thiết bị. thành phần thiết bị gồm 01 mạch arduino, 01 mạch thu tín hiệu hồng ngoại, 01 mạch phát tín hiệu hồng ngoại, 01 mạch đo nhiệt độ và độ ẩm DHT11, 01 màn hình lcd 12864 giao tiếp iic, 03 nút nhấn thả 2 chân. yêu cầu khi khởi động thiết bị là hiện nhiệt độ độ ẩm hiện tại. 03 nút nhấn sắp xếp theo thứ tự là nút nhấn trái, nút nhấn giữa, nút nhấn phải. nút nhấn giữa có tác dụng hiện ra menu hoặc là ok. nút nhấn trái là giảm giá trị, nút nhấn phải là tăng giá trị. sau khi khởi động thiết bị, nếu ấn nút nhấn giữa thì hiện ra menu tùy chọn, menu có 2 dòng là "học lệnh từ điều khiển" và "set độ ẩm". ấn nút nhấn trái để vào dòng "học lệnh từ điều khiển", ấn tiếp nút nhấn giữa để bắt đầu học, lúc này dòng " học lệnh từ điều khiển" sẽ nhấp nháy và  thiết bị sẽ đọc một giá trị hồng ngoại thu được và lưu vào bộ nhớ, dòng "học lệnh từ điều khiển" hết nhấp nháy, sau đó trở về menu. tiếp theo nếu ấn vào nút nhấn phải thì vào dòng "set độ ấm", ấn tiếp nút nhấn giữa để bắt đầu cài đặt giá trị độ ẩm, dùng nút nhấn trái để giảm giá trị, dùng nút nhân phải để tăng giá trị, mỗi lần ấn là thay đổi 1 đơn vị, bắt đầu từ 45, nhấn nút nhấn giữa để lưu lại giá trị độ ẩm cài đặt. khi có đủ 2 giá trị   hồng ngoại thu được và độ ẩm cài đặt thì thiết bị sẽ tự động phát giá trị hồng ngoại đã học được qua mạch phát hồng ngoại khi mà độ ẩm đo được bằng với độ ẩm cài đặt, và sẽ phát hồng ngoại lần nữa khi độ ẩm đo được lớn hơn 60.
